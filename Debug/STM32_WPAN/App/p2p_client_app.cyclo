@@ -1,0 +1,5 @@
+../STM32_WPAN/App/p2p_client_app.c:160:6:P2PC_APP_Init	2
+../STM32_WPAN/App/p2p_client_app.c:186:6:P2PC_APP_Notification	3
+../STM32_WPAN/App/p2p_client_app.c:236:30:Event_Handler	49
+../STM32_WPAN/App/p2p_client_app.c:581:6:Gatt_Notification	1
+../STM32_WPAN/App/p2p_client_app.c:610:9:P2P_Client_APP_Get_State	1
