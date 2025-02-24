@@ -534,7 +534,8 @@ SVCCTL_UserEvtFlowStatus_t SVCCTL_App_Notification(void *pckt)
 						 memcpy(local_name, &adv_report_data[k + 2], name_length); // ADデータをコピー
 						 local_name[name_length] = '\0'; // NULL終端
 
-						 if (strcmp(local_name, "XOSS_VOR_S5546") != 0 && strcmp(local_name, "ASSIOMA46734L") != 0) break;
+						 // if (strcmp(local_name, "XOSS_VOR_S5546") != 0 && strcmp(local_name, "ASSIOMA46734L") != 0) break;
+						 if (strcmp(local_name, "ASSIOMA46734L") != 0) break;
 
 						 // 接続対象のデバイスとして登録
 						 SensorDevices[num_sensors_found].addr_type = addr_type;

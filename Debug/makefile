@@ -44,34 +44,34 @@ $(wildcard ../makefile.init) \
 $(wildcard ../makefile.targets) \
 
 
-BUILD_ARTIFACT_NAME := BLE_CLIENT
+BUILD_ARTIFACT_NAME := ble-cycle-client
 BUILD_ARTIFACT_EXTENSION := elf
 BUILD_ARTIFACT_PREFIX :=
 BUILD_ARTIFACT := $(BUILD_ARTIFACT_PREFIX)$(BUILD_ARTIFACT_NAME)$(if $(BUILD_ARTIFACT_EXTENSION),.$(BUILD_ARTIFACT_EXTENSION),)
 
 # Add inputs and outputs from these tool invocations to the build variables 
 EXECUTABLES += \
-BLE_CLIENT.elf \
+ble-cycle-client.elf \
 
 MAP_FILES += \
-BLE_CLIENT.map \
+ble-cycle-client.map \
 
 SIZE_OUTPUT += \
 default.size.stdout \
 
 OBJDUMP_LIST += \
-BLE_CLIENT.list \
+ble-cycle-client.list \
 
 
 # All Target
 all: main-build
 
 # Main-build Target
-main-build: BLE_CLIENT.elf secondary-outputs
+main-build: ble-cycle-client.elf secondary-outputs
 
 # Tool invocations
-BLE_CLIENT.elf BLE_CLIENT.map: $(OBJS) $(USER_OBJS) C:\Users\info\STM32CubeIDE\workspace_1.17.0\BLE_CLIENT\STM32WB5MMGHX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
-	arm-none-eabi-gcc -o "BLE_CLIENT.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m4 -T"C:\Users\info\STM32CubeIDE\workspace_1.17.0\BLE_CLIENT\STM32WB5MMGHX_FLASH.ld" --specs=nosys.specs -Wl,-Map="BLE_CLIENT.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -u _printf_float -Wl,--start-group -lc -lm -Wl,--end-group
+ble-cycle-client.elf ble-cycle-client.map: $(OBJS) $(USER_OBJS) C:\Users\info\STM32CubeIDE\workspace_1.17.0\ble-cycle-client\STM32WB5MMGHX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
+	arm-none-eabi-gcc -o "ble-cycle-client.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m4 -T"C:\Users\info\STM32CubeIDE\workspace_1.17.0\ble-cycle-client\STM32WB5MMGHX_FLASH.ld" --specs=nosys.specs -Wl,-Map="ble-cycle-client.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -u _printf_float -Wl,--start-group -lc -lm -Wl,--end-group
 	@echo 'Finished building target: $@'
 	@echo ' '
 
@@ -80,14 +80,14 @@ default.size.stdout: $(EXECUTABLES) makefile objects.list $(OPTIONAL_TOOL_DEPS)
 	@echo 'Finished building: $@'
 	@echo ' '
 
-BLE_CLIENT.list: $(EXECUTABLES) makefile objects.list $(OPTIONAL_TOOL_DEPS)
-	arm-none-eabi-objdump -h -S $(EXECUTABLES) > "BLE_CLIENT.list"
+ble-cycle-client.list: $(EXECUTABLES) makefile objects.list $(OPTIONAL_TOOL_DEPS)
+	arm-none-eabi-objdump -h -S $(EXECUTABLES) > "ble-cycle-client.list"
 	@echo 'Finished building: $@'
 	@echo ' '
 
 # Other Targets
 clean:
-	-$(RM) BLE_CLIENT.elf BLE_CLIENT.list BLE_CLIENT.map default.size.stdout
+	-$(RM) ble-cycle-client.elf ble-cycle-client.list ble-cycle-client.map default.size.stdout
 	-@echo ' '
 
 secondary-outputs: $(SIZE_OUTPUT) $(OBJDUMP_LIST)

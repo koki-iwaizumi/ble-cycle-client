@@ -103,6 +103,9 @@ typedef struct
    */
   uint16_t P2PNotificationDescHandle;
 
+  uint16_t CSC_Handle;  // CSC Measurement の Characteristic Handle
+  uint16_t CPM_Handle;  // Cycling Power Measurement の Characteristic Handle
+
 }P2P_ClientContext_t;
 
 /* USER CODE BEGIN PTD */
@@ -111,10 +114,15 @@ static uint32_t prevWheelRevolutions = 0;
 static uint16_t prevWheelEventTime = 0;
 static uint8_t prevZeroWheelRevCount = 0;
 
+static uint16_t prevCrankRevolutions = 0;
+static uint16_t prevCrankEventTime = 0;
+static uint8_t prevZeroCrankRevCount = 0;
+
 #define MIN_TIME_DIFF 50
 #define MAX_SPEED_CHANGE_RATIO 4
 #define WHEEL_CIRCUMFERENCE 2.130  // 700x28c のホイール円周 (m)
 #define WHEEL_ZERO_COUNT 2  // 何連続で0.0を計測したら本当に0.0km/hと見なすか
+#define CRANK_ZERO_COUNT 2  // 何連続で0.0を計測したら本当に0.0km/hと見なすか
 /* USER CODE END PTD */
 
 /* Private defines ------------------------------------------------------------*/
@@ -282,32 +290,33 @@ static SVCCTL_EvtAckStatus_t Event_Handler(void *Event)
 
           if(index < BLE_CFG_CLT_MAX_NBR_CB)
           {
-            aP2PClientContext[index].connHandle= handle;
+              aP2PClientContext[index].connHandle= handle;
 
-            numServ = (pr->Data_Length) / pr->Attribute_Data_Length;
+              numServ = (pr->Data_Length) / pr->Attribute_Data_Length;
 
-            APP_DBG_MSG("-- GATT: ACI_ATT_READ_BY_GROUP_TYPE_RESP_VSEVT_CODE: length: %d index: %d\n\r", pr->Attribute_Data_Length, index);
+              APP_DBG_MSG("-- GATT: ACI_ATT_READ_BY_GROUP_TYPE_RESP_VSEVT_CODE: Attribute_Data_Length=%d Data_Length=%d index=%d numServ=%d\n\r", pr->Attribute_Data_Length, pr->Data_Length, index, numServ);
 
-            if (pr->Attribute_Data_Length == 6)
-            {
-              idx = 4;
-              for (i=0; i<numServ; i++)
-              {
-                uuid = UNPACK_2_BYTE_PARAMETER(&pr->Attribute_Data_List[idx]);
+              if (pr->Attribute_Data_Length != 6) break;
 
-                // APP_DBG_MSG("-- GATT: ACI_ATT_READ_BY_GROUP_TYPE_RESP_VSEVT_CODE: Found UUID: 0x%04X\n\r", uuid);
+			  idx = 4;
+			  for (i=0; i<numServ; i++)
+			  {
+				uuid = UNPACK_2_BYTE_PARAMETER(&pr->Attribute_Data_List[idx]);
 
-                if(uuid == 0x1816) // Cycling Speed and Cadence (CSC) サービス
-                {
-                  APP_DBG_MSG("-- GATT : SERVICE_UUID FOUND: Cycling Speed and Cadence \n");
+				APP_DBG_MSG("-- GATT: ACI_ATT_READ_BY_GROUP_TYPE_RESP_VSEVT_CODE: Found UUID: 0x%04X\n\r", uuid);
 
-                  aP2PClientContext[index].P2PServiceHandle = UNPACK_2_BYTE_PARAMETER(&pr->Attribute_Data_List[idx-4]);
-                  aP2PClientContext[index].P2PServiceEndHandle = UNPACK_2_BYTE_PARAMETER (&pr->Attribute_Data_List[idx-2]);
-                  aP2PClientContext[index].state = APP_BLE_DISCOVER_CHARACS ;
-                }
-                idx += 6;
-              }
-            }
+				// 0x1816 -> Cycling Speed and Cadence (CSC) サービス
+				// 0x1818 -> Cycling Power Service (CPS)
+				if(uuid == 0x1816 || uuid == 0x1818)
+				{
+				  APP_DBG_MSG("-- GATT : SERVICE_UUID FOUND: uuid=0x%04X\n", uuid);
+
+				  aP2PClientContext[index].P2PServiceHandle = UNPACK_2_BYTE_PARAMETER(&pr->Attribute_Data_List[idx-4]);
+				  aP2PClientContext[index].P2PServiceEndHandle = UNPACK_2_BYTE_PARAMETER (&pr->Attribute_Data_List[idx-2]);
+				  aP2PClientContext[index].state = APP_BLE_DISCOVER_CHARACS ;
+				}
+				idx += 6;
+			  }
           }
         }
         break;
@@ -349,12 +358,25 @@ static SVCCTL_EvtAckStatus_t Event_Handler(void *Event)
 
                 // APP_DBG_MSG("-- GATT : NOTIFICATION_CHAR_UUID - uuid=0x%04x\n", uuid);
 
-                if (uuid == 0x2A5B)  // CSC Measurement (Speed & Cadence)
+                // 0x2A5B -> CSC Measurement (Speed & Cadence)
+                // 0x2A63 -> Cycling Power Measurement
+                if (uuid == 0x2A5B || uuid == 0x2A63)
                 {
                   APP_DBG_MSG("-- GATT : NOTIFICATION_CHAR_UUID FOUND - uuid=0x%04x\n", uuid);
 
                   aP2PClientContext[index].state = APP_BLE_DISCOVER_NOTIFICATION_CHAR_DESC;
                   aP2PClientContext[index].P2PNotificationCharHdle = handle;
+                }
+
+                if (uuid == 0x2A5B) // CSC Measurement (Speed & Cadence)
+                {
+                  APP_DBG_MSG("-- GATT : Found CSC Measurement Characteristic\n");
+                  aP2PClientContext[index].CSC_Handle = handle;
+                }
+                else if (uuid == 0x2A63)  // Cycling Power Measurement
+                {
+                    APP_DBG_MSG("-- GATT : Found Cycling Power Measurement Characteristic\n");
+                    aP2PClientContext[index].CPM_Handle = handle;
                 }
 
                 pr->Data_Length -= 7;
@@ -436,26 +458,26 @@ static SVCCTL_EvtAckStatus_t Event_Handler(void *Event)
 
         case ACI_GATT_NOTIFICATION_VSEVT_CODE:
         {
-          aci_gatt_notification_event_rp0 *pr = (void*)blecore_evt->data;
-          uint8_t index;
+			aci_gatt_notification_event_rp0 *pr = (void*)blecore_evt->data;
+			uint8_t index;
 
-          index = 0;
-          while((index < BLE_CFG_CLT_MAX_NBR_CB) &&
-                  (aP2PClientContext[index].connHandle != pr->Connection_Handle))
-            index++;
+			index = 0;
+			while((index < BLE_CFG_CLT_MAX_NBR_CB) &&
+				  (aP2PClientContext[index].connHandle != pr->Connection_Handle))
+			index++;
 
-          if(index < BLE_CFG_CLT_MAX_NBR_CB)
-          {
+			if(index >= BLE_CFG_CLT_MAX_NBR_CB) break;
 
             // APP_DBG_MSG("-- GATT : ACI_GATT_NOTIFICATION_VSEVT_CODE - index: %d, Length: %d\n", index, pr->Attribute_Value_Length);
 
-            if (pr->Attribute_Handle == aP2PClientContext[index].P2PNotificationCharHdle)
-            {
-                uint8_t flags = pr->Attribute_Value[0];
-                uint8_t offset = 1;
+			// 受信データの Attribute Handle でどのキャラクタリスティックか判別
+	        if (pr->Attribute_Handle == aP2PClientContext[index].CSC_Handle) // CSC Measurement (Speed & Cadence)
+	        {
+				uint8_t flags = pr->Attribute_Value[0];
+				uint8_t offset = 1;
 
-                if (flags & 0x01)  // Bit 0: Wheel Revolution Data Present
-                {
+				if (flags & 0x01)  // Bit 0: Wheel Revolution Data Present
+				{
 					// Cumulative Wheel Revolutions (4バイト)
 					uint32_t wheelRevolutions = (pr->Attribute_Value[offset] |
 										(pr->Attribute_Value[offset + 1] << 8) |
@@ -477,8 +499,7 @@ static SVCCTL_EvtAckStatus_t Event_Handler(void *Event)
 					float speed_mps = (wheelRevDiff * WHEEL_CIRCUMFERENCE) / timeSeconds;
 					float speed_kmh = speed_mps * 3.6;
 
-					// WHEEL_ZERO_COUNT回0が計測されたら0.0km/hとみなすように
-					if (wheelRevDiff == 0 || wheelRevDiff == 0) {
+					if (wheelRevDiff == 0) {
 						prevZeroWheelRevCount++;
 					} else {
 						prevZeroWheelRevCount = 0;
@@ -493,17 +514,62 @@ static SVCCTL_EvtAckStatus_t Event_Handler(void *Event)
 					}
 
 					if (speed_kmh >= 0) {
-	        			APP_DBG_MSG("Speed: %.2f km/h", speed_kmh);
-//	        			APP_DBG_MSG("Speed: %.2f km/h, wheelRevolution=%u, prevWheelRevolutions=%u, wheelRevDiff=%u, wheelEventTime=%u, prevWheelEventTime=%u, timeDiff=%u, prevZeroWheelRevCount=%d\n",
-//	        					speed_kmh ,wheelRevolutions, prevWheelRevolutions, wheelRevDiff, wheelEventTime, prevWheelEventTime, timeDiff, prevZeroWheelRevCount);
+						APP_DBG_MSG("Speed: %.2f km/h", speed_kmh);
+			//	        			APP_DBG_MSG("Speed: %.2f km/h, wheelRevolution=%u, prevWheelRevolutions=%u, wheelRevDiff=%u, wheelEventTime=%u, prevWheelEventTime=%u, timeDiff=%u, prevZeroWheelRevCount=%d\n",
+			//	        					speed_kmh ,wheelRevolutions, prevWheelRevolutions, wheelRevDiff, wheelEventTime, prevWheelEventTime, timeDiff, prevZeroWheelRevCount);
 					}
 
-                    // 現在のデータを保存
-                    prevWheelRevolutions = wheelRevolutions;
-                    prevWheelEventTime = wheelEventTime;
-                }
-            }
-          }
+					// 現在のデータを保存
+					prevWheelRevolutions = wheelRevolutions;
+					prevWheelEventTime = wheelEventTime;
+				}
+			}
+
+	        if (pr->Attribute_Handle == aP2PClientContext[index].CPM_Handle) // Cycling Power Measurement
+			{
+			    // **パワーの取得**
+			    int16_t power = (int16_t)(pr->Attribute_Value[2] | (pr->Attribute_Value[3] << 8));
+
+				// **ケイデンスの取得**
+				uint16_t cumulativeCrankRevolutions = pr->Attribute_Value[5] | (pr->Attribute_Value[6] << 8);
+				uint16_t lastCrankEventTime = pr->Attribute_Value[7] | (pr->Attribute_Value[8] << 8);
+				uint16_t crankDiff = cumulativeCrankRevolutions - prevCrankRevolutions;
+				uint16_t timeDiff = (lastCrankEventTime >= prevCrankEventTime) ?
+									 (lastCrankEventTime - prevCrankEventTime) :
+									 ((65536 + lastCrankEventTime) - prevCrankEventTime); // 16bit のオーバーフロー対策
+				float timeSeconds = timeDiff / 1024.0;  // 1/1024 秒単位
+				int16_t cadence = (crankDiff / timeSeconds) * 60;  // 回転数/分 (RPM)
+
+				if (crankDiff == 0) {
+					prevZeroCrankRevCount++;
+				} else {
+					prevZeroCrankRevCount = 0;
+				}
+
+				if ((prevCrankRevolutions == 0 && prevCrankEventTime == 0) || prevZeroCrankRevCount > CRANK_ZERO_COUNT) {
+					cadence = 0;
+				} else if (0 < prevZeroCrankRevCount && prevZeroCrankRevCount <= CRANK_ZERO_COUNT) {
+					cadence = -1;
+				}
+
+				if (cadence >= 0) {
+					APP_DBG_MSG("Power: %d W, Cadence: %d rpm\n", power, cadence);
+				}
+
+//				APP_DBG_MSG("Power: %d W, Cadence: %d rpm, crank: %d, prevCrank: %d, cDiff: %d, time: %d, prevTime: %d, tDiff: %d, seconds: %.4f s\n",
+//						power, cadence, cumulativeCrankRevolutions, prevCrankRevolutions, crankDiff, lastCrankEventTime, prevCrankEventTime, timeDiff, timeSeconds);
+
+//				APP_DBG_MSG("Flags: 0x%02X%02X, Power: 0x%02X%02X, PowerBalance: 0x%02X, Crank: 0x%02X%02X, CrankTime: 0x%02X%02X\n",
+//						pr->Attribute_Value[0], pr->Attribute_Value[1],
+//						pr->Attribute_Value[2], pr->Attribute_Value[3],
+//						pr->Attribute_Value[4],
+//						pr->Attribute_Value[5], pr->Attribute_Value[6],
+//						pr->Attribute_Value[7], pr->Attribute_Value[8]
+//				);
+
+				prevCrankRevolutions = cumulativeCrankRevolutions;
+				prevCrankEventTime = lastCrankEventTime;
+			}
         }
         break;/* end ACI_GATT_NOTIFICATION_VSEVT_CODE */
 
