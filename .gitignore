@@ -1,0 +1,43 @@
+# Ignore build artifacts
+*.o
+*.elf
+*.bin
+*.hex
+*.map
+*.lst
+*.out
+*.srec
+*.a
+*.d
+
+# Ignore Keil specific files
+*.axf
+*.uvoptx
+*.uvprojx
+
+# Ignore IAR specific files
+*.ewt
+*.ewd
+*.ewp
+*.eww
+*.ewp.bak
+*.eww.bak
+*.dep
+
+# Ignore generated files and folders
+build/
+Debug/
+Release/
+
+# Ignore Logs and temporary files
+*.log
+*.tmp
+*.bak
+*.swp
+*.swo
+*.swd
+
+# Ignore Python virtual environments (if any scripts are used)
+.venv/
+__pycache__/
+*.pyc
