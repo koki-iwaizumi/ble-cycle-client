@@ -9,6 +9,7 @@
 *.srec
 *.a
 *.d
+*.list
 
 # Ignore Keil specific files
 *.axf
