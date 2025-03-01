@@ -40,15 +40,11 @@ typedef struct {
 	uint8_t DeviceServerFound;
 } BleApplicationContext_t;
 
-#define MAX_DEVICES 8
-typedef struct {
-	uint8_t addr_type;  // アドレスの種類 (パブリック or ランダム)
-	tBDAddr bd_addr;    // デバイスの Bluetooth アドレス (6 バイト)
-	uint8_t connected;  // 接続状態 (0: 未接続, 1: 接続済み)
-} SensorDevice_t;
-SensorDevice_t SensorDevices[MAX_DEVICES];  // センサーのリスト
-uint8_t num_sensors_found = 0;              // 見つかったデバイスの数
-uint8_t current_connection_index = 0;       // 現在接続中のデバイスインデックス
+SensorDevice_t speedSensor = { .addr_type = 1, .bd_addr = { 0xCB, 0x3B, 0x6F,
+		0x4C, 0xDE, 0xA5 }, .status = BLE_IDLE };
+
+SensorDevice_t powerMeterSensor = { .addr_type = 1, .bd_addr = { 0xF4, 0x27,
+		0x14, 0x35, 0xEA, 0x2F }, .status = BLE_IDLE };
 
 #define APPBLE_GAP_DEVICE_NAME_LENGTH 7
 #define BD_ADDR_SIZE_LOCAL    6
@@ -71,7 +67,8 @@ static void Ble_Tl_Init(void);
 static void Ble_Hci_Gap_Gatt_Init(void);
 static void Scan_Request(void);
 static void Connect_Request(void);
-static void Connect_Check(void);
+static void Reconnect_Request(void);
+static void Notify_Check(void);
 
 extern TIM_HandleTypeDef htim2; // 使用するタイマー
 
@@ -124,10 +121,8 @@ void APP_BLE_Init(void) {
 	Ble_Hci_Gap_Gatt_Init();
 	SVCCTL_Init();
 
-//  UTIL_SEQ_RegTask(1<<CFG_TASK_START_SCAN_ID, UTIL_SEQ_RFU, Scan_Request);
-//  UTIL_SEQ_RegTask(1<<CFG_TASK_CONN_DEV_1_ID, UTIL_SEQ_RFU, Connect_Request);
-	UTIL_SEQ_RegTask(1 << CFG_TASK_CONNECT_CHECK_ID, UTIL_SEQ_RFU,
-			Connect_Check);
+	UTIL_SEQ_RegTask(1 << CFG_TASK_START_SCAN_ID, UTIL_SEQ_RFU, Scan_Request);
+	UTIL_SEQ_RegTask(1 << CFG_TASK_Notify_Check_ID, UTIL_SEQ_RFU, Notify_Check);
 
 	BleApplicationContext.Device_Connection_Status = APP_BLE_IDLE;
 
@@ -160,12 +155,15 @@ SVCCTL_UserEvtFlowStatus_t SVCCTL_App_Notification(void *pckt) {
 			if (gap_evt_proc_complete->Procedure_Code
 					== GAP_GENERAL_DISCOVERY_PROC
 					&& gap_evt_proc_complete->Status == 0x00) {
-				APP_DBG_MSG("-- GAP GENERAL DISCOVERY PROCEDURE_COMPLETED: %d\n\r", num_sensors_found)
+				APP_DBG_MSG("Scan_Result: speedSensor.status=%d, powerMeterSensor.status=%d\n\r", speedSensor.status, powerMeterSensor.status)
 				;
-				if (num_sensors_found > 0) {
-					current_connection_index = 0;
-					Connect_To_Next_Sensor();
-				}
+
+				if (speedSensor.status == BLE_SCANNING)
+					speedSensor.status = BLE_IDLE;
+				if (powerMeterSensor.status == BLE_SCANNING)
+					powerMeterSensor.status = BLE_IDLE;
+
+				Connect_Request();
 			}
 		}
 			break;
@@ -175,7 +173,7 @@ SVCCTL_UserEvtFlowStatus_t SVCCTL_App_Notification(void *pckt) {
 	}
 		break;
 
-	case HCI_DISCONNECTION_COMPLETE_EVT_CODE: {
+	case HCI_DISCONNECTION_COMPLETE_EVT_CODE:
 		if (cc->Connection_Handle
 				== BleApplicationContext.BleApplicationContext_legacy.connectionHandle) {
 			BleApplicationContext.BleApplicationContext_legacy.connectionHandle =
@@ -186,9 +184,23 @@ SVCCTL_UserEvtFlowStatus_t SVCCTL_App_Notification(void *pckt) {
 			handleNotification.P2P_Evt_Opcode = PEER_DISCON_HANDLE_EVT;
 			handleNotification.ConnectionHandle =
 					BleApplicationContext.BleApplicationContext_legacy.connectionHandle;
-			P2PC_APP_Notification(&handleNotification);
 		}
-	}
+
+		if (cc->Connection_Handle == speedSensor.connection_handle) {
+			APP_DBG_MSG("disconnect: speedSensor \n\r")
+			;
+			speedSensor.status = BLE_IDLE;
+			speedSensor.gatt_status = BLE_GATT_IDLE;
+			Reconnect_Request();
+		} else if (cc->Connection_Handle
+				== powerMeterSensor.connection_handle) {
+			APP_DBG_MSG("disconnect: powerMeterSensor \n\r")
+			;
+			powerMeterSensor.status = BLE_IDLE;
+			powerMeterSensor.gatt_status = BLE_GATT_IDLE;
+			Reconnect_Request();
+		}
+
 		break;
 
 	case HCI_LE_META_EVT_CODE: {
@@ -198,27 +210,49 @@ SVCCTL_UserEvtFlowStatus_t SVCCTL_App_Notification(void *pckt) {
 		case HCI_LE_CONNECTION_COMPLETE_SUBEVT_CODE:
 			connection_complete_event =
 					(hci_le_connection_complete_event_rp0*) meta_evt->data;
+
 			if (connection_complete_event->Status != 0x00)
 				break;
 
-			APP_DBG_MSG("Connected to device %d\r\n", current_connection_index + 1)
-			;
+			APP_DBG_MSG("Connected to device Peer_Address: %02X:%02X:%02X:%02X:%02X:%02X\r\n",
+					connection_complete_event->Peer_Address[0], connection_complete_event->Peer_Address[1], connection_complete_event->Peer_Address[2],
+					connection_complete_event->Peer_Address[3], connection_complete_event->Peer_Address[4], connection_complete_event->Peer_Address[5])
 
-			SensorDevices[current_connection_index].connected = 1;
-			current_connection_index++;
-			if (current_connection_index < num_sensors_found)
-				Connect_To_Next_Sensor();
+			if (memcmp(speedSensor.bd_addr,
+					connection_complete_event->Peer_Address, sizeof(tBDAddr))
+					== 0) {
+				APP_DBG_MSG("Connected to speedSensor\r\n")
+				;
+				speedSensor.status = BLE_CONNECTED;
+				speedSensor.gatt_status = BLE_GATT_IDLE;
+				speedSensor.connection_handle =
+						connection_complete_event->Connection_Handle;
+			} else if (memcmp(powerMeterSensor.bd_addr,
+					connection_complete_event->Peer_Address, sizeof(tBDAddr))
+					== 0) {
+				APP_DBG_MSG("Connected to powerMeterSensor\r\n")
+				;
+				powerMeterSensor.status = BLE_CONNECTED;
+				powerMeterSensor.gatt_status = BLE_GATT_IDLE;
+				powerMeterSensor.connection_handle =
+						connection_complete_event->Connection_Handle;
+			}
+
+			Connect_Request();
 
 			BleApplicationContext.BleApplicationContext_legacy.connectionHandle =
 					connection_complete_event->Connection_Handle;
-			APP_DBG_MSG("Set connection handle: 0x%04X\n\r", BleApplicationContext.BleApplicationContext_legacy.connectionHandle)
-			;
 
 			result =
 					aci_gatt_disc_all_primary_services(
 							BleApplicationContext.BleApplicationContext_legacy.connectionHandle);
-			if (result != BLE_STATUS_SUCCESS)
-				APP_DBG_MSG("aci_gatt_disc_all_primary_services Failed \r\n\r")
+			if (result == BLE_STATUS_SUCCESS) {
+				APP_DBG_MSG("aci_gatt_disc_all_primary_services Success \r\n\r")
+				;
+			} else {
+				APP_DBG_MSG("aci_gatt_disc_all_primary_services Failed : 0x%02X\r\n\r", result)
+				;
+			}
 			;
 			break;
 
@@ -238,10 +272,6 @@ SVCCTL_UserEvtFlowStatus_t SVCCTL_App_Notification(void *pckt) {
 					le_advertising_event->Advertising_Report[0].Address_Type;
 			uint8_t *addr = le_advertising_event->Advertising_Report[0].Address;
 
-			// すでにリストに存在するかチェック（重複除外）
-			if (is_duplicate_devices(addr) || num_sensors_found == MAX_DEVICES)
-				break;
-
 			k = 0;
 
 			while (k < event_data_size) {
@@ -260,21 +290,18 @@ SVCCTL_UserEvtFlowStatus_t SVCCTL_App_Notification(void *pckt) {
 					memcpy(local_name, &adv_report_data[k + 2], name_length); // ADデータをコピー
 					local_name[name_length] = '\0'; // NULL終端
 
-					if (strcmp(local_name, "XOSS_VOR_S5546") != 0
-							&& strcmp(local_name, "ASSIOMA46734L") != 0)
-						break;
-					// if (strcmp(local_name, "ASSIOMA46734L") != 0) break;
-
-					// 接続対象のデバイスとして登録
-					SensorDevices[num_sensors_found].addr_type = addr_type;
-					memcpy(SensorDevices[num_sensors_found].bd_addr, addr, 6);
-					SensorDevices[num_sensors_found].connected = 0;
-
-					APP_DBG_MSG("New device %d found: Addr = %02X:%02X:%02X:%02X:%02X:%02X Name=%s\r\n", num_sensors_found + 1, addr[5], addr[4], addr[3], addr[2], addr[1], addr[0], local_name)
+					APP_DBG_MSG("New device found: Addr=%02X:%02X:%02X:%02X:%02X:%02X type=%d  Name=%s\r\n", addr[5], addr[4], addr[3], addr[2], addr[1], addr[0], addr_type, local_name)
 					;
 
-					num_sensors_found++;
-
+					if (strcmp(local_name, "XOSS_VOR_S5546") == 0) {
+						speedSensor.addr_type = addr_type;
+						memcpy(speedSensor.bd_addr, addr, 6);
+						speedSensor.status = BLE_SCAN;
+					} else if (strcmp(local_name, "ASSIOMA46734L") == 0) {
+						powerMeterSensor.addr_type = addr_type;
+						memcpy(powerMeterSensor.bd_addr, addr, 6);
+						powerMeterSensor.status = BLE_SCAN;
+					}
 					break;
 
 				default:
@@ -422,7 +449,7 @@ static void Ble_Hci_Gap_Gatt_Init(void) {
 	}
 
 	BleApplicationContext.BleApplicationContext_legacy.bleSecurityParam.ioCapability =
-			CFG_IO_CAPABILITY;
+	CFG_IO_CAPABILITY;
 	ret =
 			aci_gap_set_io_capability(
 					BleApplicationContext.BleApplicationContext_legacy.bleSecurityParam.ioCapability);
@@ -435,17 +462,17 @@ static void Ble_Hci_Gap_Gatt_Init(void) {
 	}
 
 	BleApplicationContext.BleApplicationContext_legacy.bleSecurityParam.mitm_mode =
-			CFG_MITM_PROTECTION;
+	CFG_MITM_PROTECTION;
 	BleApplicationContext.BleApplicationContext_legacy.bleSecurityParam.encryptionKeySizeMin =
-			CFG_ENCRYPTION_KEY_SIZE_MIN;
+	CFG_ENCRYPTION_KEY_SIZE_MIN;
 	BleApplicationContext.BleApplicationContext_legacy.bleSecurityParam.encryptionKeySizeMax =
-			CFG_ENCRYPTION_KEY_SIZE_MAX;
+	CFG_ENCRYPTION_KEY_SIZE_MAX;
 	BleApplicationContext.BleApplicationContext_legacy.bleSecurityParam.Use_Fixed_Pin =
-			CFG_USED_FIXED_PIN;
+	CFG_USED_FIXED_PIN;
 	BleApplicationContext.BleApplicationContext_legacy.bleSecurityParam.Fixed_Pin =
-			CFG_FIXED_PIN;
+	CFG_FIXED_PIN;
 	BleApplicationContext.BleApplicationContext_legacy.bleSecurityParam.bonding_mode =
-			CFG_BONDING_MODE;
+	CFG_BONDING_MODE;
 
 	ret =
 			aci_gap_set_authentication_requirement(
@@ -481,49 +508,130 @@ static void Ble_Hci_Gap_Gatt_Init(void) {
 }
 
 static void Scan_Request(void) {
-	tBleStatus result;
-	if (BleApplicationContext.Device_Connection_Status
-			!= APP_BLE_CONNECTED_CLIENT) {
-		result = aci_gap_start_general_discovery_proc(SCAN_P, SCAN_L,
-				CFG_BLE_ADDRESS_TYPE, 1);
-		if (result == BLE_STATUS_SUCCESS) {
-			APP_DBG_MSG(" \r\n\r** START GENERAL DISCOVERY (SCAN) **  \r\n\r")
-			;
-		} else {
-			APP_DBG_MSG("-- BLE_App_Start_Limited_Disc_Req, Failed \r\n\r")
-			;
-		}
+	APP_DBG_MSG("Scan_Request: speedSensor.status=%d, powerMeterSensor.status=%d\n\r", speedSensor.status, powerMeterSensor.status)
+	;
+	if ((speedSensor.status != BLE_IDLE && powerMeterSensor.status != BLE_IDLE)
+			|| speedSensor.status == BLE_SCANNING
+			|| powerMeterSensor.status == BLE_SCANNING)
+		return;
+
+	tBleStatus result = aci_gap_start_general_discovery_proc(SCAN_P, SCAN_L,
+	CFG_BLE_ADDRESS_TYPE, 1);
+	if (result == BLE_STATUS_SUCCESS) {
+		APP_DBG_MSG(" \r\n\r** START GENERAL DISCOVERY (SCAN) **  \r\n\r")
+		;
+		if (speedSensor.status == BLE_IDLE)
+			speedSensor.status = BLE_SCANNING;
+		if (powerMeterSensor.status == BLE_IDLE)
+			powerMeterSensor.status = BLE_SCANNING;
+	} else {
+		APP_DBG_MSG("-- DISCOVERY (SCAN), Failed \r\n\r")
+		;
 	}
-	return;
 }
 
 static void Connect_Request(void) {
+	APP_DBG_MSG("Connect_Request: speedSensor.status=%d, powerMeterSensor.status=%d\n\r", speedSensor.status, powerMeterSensor.status)
+
 	tBleStatus result;
 
-	APP_DBG_MSG("\r\n\r** CREATE CONNECTION TO SERVER **  \r\n\r")
-	;
-
-	if (BleApplicationContext.Device_Connection_Status
-			!= APP_BLE_CONNECTED_CLIENT) {
-		result = aci_gap_create_connection(SCAN_P,
-		SCAN_L, SERVER_REMOTE_ADDR_TYPE, SERVER_REMOTE_BDADDR,
+	if (speedSensor.status == BLE_SCAN) {
+		APP_DBG_MSG("aci_gap_create_connection start: speedSensor\r\n")
+		;
+		result = aci_gap_create_connection(
+		SCAN_P, SCAN_L, speedSensor.addr_type, speedSensor.bd_addr,
 		CFG_BLE_ADDRESS_TYPE,
-		CONN_P1,
-		CONN_P2, 0,
-		SUPERV_TIMEOUT,
-		CONN_L1,
-		CONN_L2);
+		CONN_P1, CONN_P2, 0, SUPERV_TIMEOUT,
+		CONN_L1, CONN_L2);
 
 		if (result == BLE_STATUS_SUCCESS) {
-			BleApplicationContext.Device_Connection_Status =
-					APP_BLE_LP_CONNECTING;
-
+			APP_DBG_MSG("speedSensor aci_gap_create_connection successfully.\n")
+			;
+			speedSensor.status = BLE_CONNECTING;
 		} else {
-			BleApplicationContext.Device_Connection_Status = APP_BLE_IDLE;
+			APP_DBG_MSG("speedSensor aci_gap_create_connection Failed: 0x%02X\n",
+					result)
+			;
+			speedSensor.status = BLE_IDLE;
+		}
+	} else if (powerMeterSensor.status == BLE_SCAN) {
+		APP_DBG_MSG("aci_gap_create_connection start: powerMeterSensor\r\n")
+		;
+		result = aci_gap_create_connection(
+		SCAN_P, SCAN_L, powerMeterSensor.addr_type, powerMeterSensor.bd_addr,
+		CFG_BLE_ADDRESS_TYPE,
+		CONN_P1, CONN_P2, 0, SUPERV_TIMEOUT,
+		CONN_L1, CONN_L2);
 
+		if (result == BLE_STATUS_SUCCESS) {
+			APP_DBG_MSG(
+					"powerMeterSensor aci_gap_create_connection successfully.\n")
+			;
+			powerMeterSensor.status = BLE_CONNECTING;
+		} else {
+			APP_DBG_MSG(
+					"powerMeterSensor aci_gap_create_connection Failed: 0x%02X\n",
+					result)
+			;
+			powerMeterSensor.status = BLE_IDLE;
 		}
 	}
-	return;
+}
+
+static void Reconnect_Request(void) {
+	APP_DBG_MSG("Reconnect_Request: speedSensor.status=%d, powerMeterSensor.status=%d\n\r", speedSensor.status, powerMeterSensor.status)
+
+	if (speedSensor.status != BLE_IDLE && powerMeterSensor.status != BLE_IDLE)
+		return;
+
+	Peer_Entry_t peerList[2];
+
+	peerList[0].Peer_Address_Type = speedSensor.addr_type;
+	memcpy(peerList[0].Peer_Address, speedSensor.bd_addr, sizeof(tBDAddr));
+
+	peerList[1].Peer_Address_Type = powerMeterSensor.addr_type;
+	memcpy(peerList[1].Peer_Address, powerMeterSensor.bd_addr, sizeof(tBDAddr));
+
+	tBleStatus result = aci_gap_start_auto_connection_establish_proc(
+	SCAN_P,  // Scan Interval (10ms〜10.24s) (例: 1.024秒)
+			SCAN_L,  // Scan Window (スキャン時間, 例: 0.512秒)
+			CFG_BLE_ADDRESS_TYPE,  // 自デバイスのアドレスタイプ (PUBLIC_ADDR or RANDOM_ADDR)
+			CONN_P1,  // 最小接続間隔 (例: 30ms)
+			CONN_P2,  // 最大接続間隔 (例: 50ms)
+			0,       // 接続遅延 (Latency = 0)
+			SUPERV_TIMEOUT,  // 監視タイムアウト (例: 5秒)
+			CONN_L1,  // 最小CE長
+			CONN_L2,  // 最大CE長
+			2,  // 接続対象デバイスの数
+			peerList      // 接続デバイスリスト
+			);
+
+	if (result == BLE_STATUS_SUCCESS) {
+		APP_DBG_MSG("Auto connection process started successfully.\n")
+		;
+	} else {
+		APP_DBG_MSG("Failed to start auto connection: 0x%02X\n", result)
+		;
+	}
+}
+
+static void Notify_Check(void) {
+	if (speedSensor.gatt_status == BLE_GATTA_ENABLE_NOTIFICATION_DESC
+			&& speedSensor.notify_count == 0) {
+		APP_DBG_MSG("speedSensor terminate\r\n")
+		;
+		aci_gap_terminate(speedSensor.connection_handle, 0x13); // 0x13 = Remote User Terminated
+	}
+
+	if (powerMeterSensor.gatt_status == BLE_GATTA_ENABLE_NOTIFICATION_DESC
+			&& powerMeterSensor.notify_count == 0) {
+		APP_DBG_MSG("powerMeterSensor terminate\r\n")
+		;
+		aci_gap_terminate(powerMeterSensor.connection_handle, 0x13); // 0x13 = Remote User Terminated
+	}
+
+	speedSensor.notify_count = 0;
+	powerMeterSensor.notify_count = 0;
 }
 
 void hci_notify_asynch_evt(void *pdata) {
@@ -581,41 +689,3 @@ void SVCCTL_ResumeUserEventFlow(void) {
 	return;
 }
 
-// すでにリストにあるデバイスかどうかを確認
-uint8_t is_duplicate_devices(uint8_t *addr) {
-	for (uint8_t i = 0; i < num_sensors_found; i++) {
-		if (memcmp(SensorDevices[i].bd_addr, addr, 6) == 0) {
-			return 1; // 重複あり
-		}
-	}
-	return 0; // 重複なし
-}
-
-void Connect_To_Next_Sensor(void) {
-	if (current_connection_index < num_sensors_found) {
-		SensorDevice_t *sensor = &SensorDevices[current_connection_index];
-
-		APP_DBG_MSG("Connecting to device %d...\r\n", current_connection_index + 1)
-		;
-
-		aci_gap_create_connection(
-		SCAN_P, SCAN_L, sensor->addr_type, sensor->bd_addr,
-		CFG_BLE_ADDRESS_TYPE,
-		CONN_P1, CONN_P2, 0, SUPERV_TIMEOUT,
-		CONN_L1, CONN_L2);
-	}
-}
-
-// 一定時間毎に接続を確認し、切断している場合は接続リクエスト
-static void Connect_Check(void) {
-	APP_DBG_MSG("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n")
-	;
-}
-
-/* タイマー割り込みハンドラ */
-//void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
-//	if (htim->Instance == TIM2)
-//	{
-//		Connect_Check(); // 1秒ごとの処理
-//	}
-//}

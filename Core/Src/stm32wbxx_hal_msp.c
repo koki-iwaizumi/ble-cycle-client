@@ -839,7 +839,8 @@ void HAL_TIM_Base_MspInit(TIM_HandleTypeDef* htim_base)
     HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /* USER CODE BEGIN TIM2_MspInit 1 */
-
+    HAL_NVIC_SetPriority(TIM2_IRQn, 1, 0);
+    HAL_NVIC_EnableIRQ(TIM2_IRQn);
   /* USER CODE END TIM2_MspInit 1 */
   }
   else if(htim_base->Instance==TIM16)
@@ -862,7 +863,8 @@ void HAL_TIM_Base_MspInit(TIM_HandleTypeDef* htim_base)
     HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
 
   /* USER CODE BEGIN TIM16_MspInit 1 */
-
+  HAL_NVIC_SetPriority(TIM1_UP_TIM16_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(TIM1_UP_TIM16_IRQn);
   /* USER CODE END TIM16_MspInit 1 */
   }
   else if(htim_base->Instance==TIM17)

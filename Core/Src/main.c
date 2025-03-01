@@ -101,7 +101,9 @@ static void MX_IPCC_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-volatile uint8_t timer_flag = 0;
+volatile uint8_t tim2_flag = 0;
+volatile uint8_t tim2_flag_init = 0;
+volatile uint8_t tim16_flag = 0;
 /* USER CODE END 0 */
 
 /**
@@ -153,11 +155,12 @@ int main(void) {
 	MX_RTC_Init();
 	MX_SPI1_Init();
 //	MX_TIM1_Init();
-//	MX_TIM2_Init();
-//	MX_TIM16_Init();
+	MX_TIM2_Init();
+	MX_TIM16_Init();
 //	MX_TIM17_Init();
 	MX_USB_PCD_Init();
 	/* USER CODE BEGIN 2 */
+
 	/* USER CODE END 2 */
 
 	/* Init code for STM32_WPAN */
@@ -170,8 +173,28 @@ int main(void) {
 		MX_APPE_Process();
 
 		/* USER CODE BEGIN 3 */
+		if (tim2_flag) {
+			if (tim2_flag_init == 1) {
+				UTIL_SEQ_SetTask(1 << CFG_TASK_START_SCAN_ID, CFG_SCH_PRIO_0);
+				UTIL_SEQ_SetTask(1 << CFG_TASK_Notify_Check_ID, CFG_SCH_PRIO_0);
+			}
+
+			printf("tim2_flag true\r\n");
+			tim2_flag = 0;
+			tim2_flag_init = 1;
+		}
 	}
 	/* USER CODE END 3 */
+}
+
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
+	switch ((uint32_t) htim->Instance) {
+	case (uint32_t) TIM2:
+		tim2_flag = 1;  // TIM2のフラグをセット
+		break;
+	default:
+		break;
+	}
 }
 
 /**
@@ -526,7 +549,7 @@ static void MX_LPTIM2_Init(void) {
 	hlptim2.Init.Clock.Prescaler = LPTIM_PRESCALER_DIV1;
 	hlptim2.Init.UltraLowPowerClock.Polarity = LPTIM_CLOCKPOLARITY_FALLING;
 	hlptim2.Init.UltraLowPowerClock.SampleTime =
-			LPTIM_CLOCKSAMPLETIME_2TRANSITIONS;
+	LPTIM_CLOCKSAMPLETIME_2TRANSITIONS;
 	hlptim2.Init.Trigger.Source = LPTIM_TRIGSOURCE_SOFTWARE;
 	hlptim2.Init.OutputPolarity = LPTIM_OUTPUTPOLARITY_HIGH;
 	hlptim2.Init.UpdateMode = LPTIM_UPDATE_IMMEDIATE;
@@ -759,42 +782,40 @@ static void MX_TIM1_Init(void) {
  * @param None
  * @retval None
  */
-static void MX_TIM2_Init(void)
-{
+static void MX_TIM2_Init(void) {
 
-  /* USER CODE BEGIN TIM2_Init 0 */
+	/* USER CODE BEGIN TIM2_Init 0 */
 
-  /* USER CODE END TIM2_Init 0 */
+	/* USER CODE END TIM2_Init 0 */
 
-  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
-  TIM_MasterConfigTypeDef sMasterConfig = {0};
+	TIM_ClockConfigTypeDef sClockSourceConfig = { 0 };
+	TIM_MasterConfigTypeDef sMasterConfig = { 0 };
 
-  /* USER CODE BEGIN TIM2_Init 1 */
+	/* USER CODE BEGIN TIM2_Init 1 */
 
-  /* USER CODE END TIM2_Init 1 */
-  htim2.Instance = TIM2;
-  htim2.Init.Prescaler = 32000-1;
-  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 1000-1;
-  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
-  if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
-  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
-  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN TIM2_Init 2 */
-  /* USER CODE END TIM2_Init 2 */
+	/* USER CODE END TIM2_Init 1 */
+	htim2.Instance = TIM2;
+	htim2.Init.Prescaler = 32000 - 1;
+	htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
+	htim2.Init.Period = 10000 - 1;
+	htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+	htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+	if (HAL_TIM_Base_Init(&htim2) != HAL_OK) {
+		Error_Handler();
+	}
+	sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+	if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK) {
+		Error_Handler();
+	}
+	sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+	sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+	if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig)
+			!= HAL_OK) {
+		Error_Handler();
+	}
+	/* USER CODE BEGIN TIM2_Init 2 */
+	HAL_TIM_Base_Start_IT(&htim2);
+	/* USER CODE END TIM2_Init 2 */
 
 }
 
@@ -804,27 +825,19 @@ static void MX_TIM2_Init(void)
  * @retval None
  */
 static void MX_TIM16_Init(void) {
-
-	/* USER CODE BEGIN TIM16_Init 0 */
-
-	/* USER CODE END TIM16_Init 0 */
-
-	/* USER CODE BEGIN TIM16_Init 1 */
-
-	/* USER CODE END TIM16_Init 1 */
 	htim16.Instance = TIM16;
-	htim16.Init.Prescaler = 0;
+	htim16.Init.Prescaler = 32000 - 1; // 1ms単位 (32MHz / 32000 = 1kHz)
 	htim16.Init.CounterMode = TIM_COUNTERMODE_UP;
-	htim16.Init.Period = 65535;
+	htim16.Init.Period = 10000 - 1; // 10秒 (10,000ms)
 	htim16.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
 	htim16.Init.RepetitionCounter = 0;
-	htim16.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+	htim16.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+
 	if (HAL_TIM_Base_Init(&htim16) != HAL_OK) {
 		Error_Handler();
 	}
-	/* USER CODE BEGIN TIM16_Init 2 */
 
-	/* USER CODE END TIM16_Init 2 */
+	HAL_TIM_Base_Start_IT(&htim16); // 割り込みで起動
 
 }
 
