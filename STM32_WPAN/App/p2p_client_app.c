@@ -147,14 +147,6 @@ static SVCCTL_EvtAckStatus_t Event_Handler(void *Event) {
 							UNPACK_2_BYTE_PARAMETER(
 									&pr->Attribute_Data_List[idx - 2]);
 					powerMeterSensor.gatt_status = BLE_GATT_DISCOVER_CHARACS;
-//
-//					aP2PClientContext[index].P2PServiceHandle =
-//							UNPACK_2_BYTE_PARAMETER(
-//									&pr->Attribute_Data_List[idx - 4]);
-//					aP2PClientContext[index].P2PServiceEndHandle =
-//							UNPACK_2_BYTE_PARAMETER(
-//									&pr->Attribute_Data_List[idx - 2]);
-//					aP2PClientContext[index].state = APP_BLE_DISCOVER_CHARACS;
 				}
 				idx += 6;
 			}
@@ -177,19 +169,6 @@ static SVCCTL_EvtAckStatus_t Event_Handler(void *Event) {
 							&pr->Handle_Value_Pair_Data[idx - 2]);
 
 					// APP_DBG_MSG("-- GATT : NOTIFICATION_CHAR_UUID - uuid=0x%04x\n", uuid);
-
-					// 0x2A5B -> CSC Measurement (Speed & Cadence)
-					// 0x2A63 -> Cycling Power Measurement
-
-//					if (uuid == 0x2A5B || uuid == 0x2A63) {
-//						APP_DBG_MSG("-- GATT : NOTIFICATION_CHAR_UUID FOUND - uuid=0x%04x\n", uuid)
-//						;
-//
-//						aP2PClientContext[index].state =
-//								APP_BLE_DISCOVER_NOTIFICATION_CHAR_DESC;
-//						aP2PClientContext[index].P2PNotificationCharHdle =
-//								handle;
-//					}
 
 					if (uuid == 0x2A5B) // CSC Measurement (Speed & Cadence)
 							{
@@ -234,14 +213,6 @@ static SVCCTL_EvtAckStatus_t Event_Handler(void *Event) {
 							&pr->Handle_UUID_Pair[idx + 2]);
 
 					if (uuid == CLIENT_CHAR_CONFIG_DESCRIPTOR_UUID) {
-
-
-//						aP2PClientContext[index].P2PNotificationDescHandle =
-//								handle;
-//						aP2PClientContext[index].state =
-//								APP_BLE_ENABLE_NOTIFICATION_DESC;
-
-
 						if (pr->Connection_Handle == speedSensor.connection_handle) {
 							APP_DBG_MSG("-- GATT : CLIENT_CHAR_CONFIG_DESCRIPTOR_UUID - speedSensor\n");
 													;
@@ -332,6 +303,7 @@ static SVCCTL_EvtAckStatus_t Event_Handler(void *Event) {
 					}
 
 					if (speed_kmh >= 0) {
+						if (speed_kmh > 999.0) speed_kmh = 0.0;
 						APP_DBG_MSG("Speed: %.2f km/h", speed_kmh)
 						;
 //						APP_DBG_MSG("Speed: %.2f km/h, wheelRevolution=%u, prevWheelRevolutions=%u, wheelRevDiff=%u, wheelEventTime=%u, prevWheelEventTime=%u, timeDiff=%u, prevZeroWheelRevCount=%d\n",
@@ -481,41 +453,6 @@ static SVCCTL_EvtAckStatus_t Event_Handler(void *Event) {
 					break;
 				}
 			}
-
-//			if (aP2PClientContext[index].state == APP_BLE_DISCOVER_CHARACS) {
-//				// サービスの探索が終わったら、キャラクタリスティックの探索を開始
-//				tBleStatus status = aci_gatt_disc_all_char_of_service(
-//						aP2PClientContext[index].connHandle,
-//						aP2PClientContext[index].P2PServiceHandle,
-//						aP2PClientContext[index].P2PServiceEndHandle);
-//
-//				if (status == BLE_STATUS_SUCCESS) {
-//					APP_DBG_MSG("-- GATT : Start discovering characteristics\n\r")
-//					;
-//				} else {
-//					APP_DBG_MSG("-- GATT : Failed to start characteristic discovery: 0x%02X\n\r", status)
-//					;
-//				}
-//			}
-//
-//			if (aP2PClientContext[index].state
-//					== APP_BLE_DISCOVER_NOTIFICATION_CHAR_DESC) {
-//				APP_DBG_MSG("-- GATT : APP_BLE_DISCOVER_NOTIFICATION_CHAR_DESC (Service discovery complete) index: %d\n\r", index)
-//				;
-//
-//				tBleStatus status = aci_gatt_disc_all_char_desc(
-//						aP2PClientContext[index].connHandle,
-//						aP2PClientContext[index].P2PNotificationCharHdle,
-//						aP2PClientContext[index].P2PNotificationCharHdle + 2);
-//
-//				if (status == BLE_STATUS_SUCCESS) {
-//					APP_DBG_MSG("-- GATT: Start aci_gatt_disc_all_char_desc\n\r")
-//					;
-//				} else {
-//					APP_DBG_MSG("-- GATT: Failed to start aci_gatt_disc_all_char_desc: 0x%02X\n\r", status)
-//					;
-//				}
-//			}
 
 			break;
 		default:
