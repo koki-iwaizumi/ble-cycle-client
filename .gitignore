@@ -42,3 +42,4 @@ Release/
 .venv/
 __pycache__/
 *.pyc
+.settings/
