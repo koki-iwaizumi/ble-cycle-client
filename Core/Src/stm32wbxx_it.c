@@ -64,6 +64,8 @@ extern UART_HandleTypeDef huart1;
 /* USER CODE BEGIN EV */
 extern TIM_HandleTypeDef htim2;
 extern TIM_HandleTypeDef htim16;
+
+extern I2C_HandleTypeDef hi2c1;
 /* USER CODE END EV */
 
 /******************************************************************************/
@@ -323,5 +325,13 @@ void TIM2_IRQHandler(void) {
 
 void TIM1_UP_TIM16_IRQHandler(void) {
     HAL_TIM_IRQHandler(&htim16);
+}
+
+void I2C1_EV_IRQHandler(void) {
+    HAL_I2C_EV_IRQHandler(&hi2c1);
+}
+
+void I2C1_ER_IRQHandler(void) {
+    HAL_I2C_ER_IRQHandler(&hi2c1);
 }
 /* USER CODE END 1 */

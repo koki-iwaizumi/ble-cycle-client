@@ -60,6 +60,8 @@ static SVCCTL_EvtAckStatus_t Event_Handler(void *Event);
 extern SensorDevice_t speedSensor;
 extern SensorDevice_t powerMeterSensor;
 
+extern I2C_HandleTypeDef hi2c1;
+
 void P2PC_APP_Init(void) {
 	uint8_t index = 0;
 
@@ -471,3 +473,9 @@ static SVCCTL_EvtAckStatus_t Event_Handler(void *Event) {
 uint8_t P2P_Client_APP_Get_State(void) {
 	return aP2PClientContext[0].state;
 }
+
+//void HAL_I2C_SlaveTxCpltCallback(I2C_HandleTypeDef *hi2c) {
+//    if (hi2c->Instance == I2C1) {
+//    	APP_DBG_MSG("Data Sent Successfully\n");
+//    }
+//}
