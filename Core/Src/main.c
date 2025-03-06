@@ -105,13 +105,7 @@ volatile uint8_t tim2_flag = 0;
 volatile uint8_t tim2_flag_init = 0;
 volatile uint8_t tim16_flag = 0;
 
-#define SLAVE_ADDRESS 0x30  // スレーブアドレス (7-bit)
-#define I2C_BUFFER_SIZE 16   // バッファサイズ
-
 I2C_HandleTypeDef hi2c1;
-uint8_t i2c_rx_buffer[I2C_BUFFER_SIZE];
-uint8_t i2c_tx_buffer[I2C_BUFFER_SIZE] = "Reply from Slave!";
-
 /* USER CODE END 0 */
 
 /**
@@ -169,77 +163,80 @@ int main(void) {
 	MX_USB_PCD_Init();
 	/* USER CODE BEGIN 2 */
 
-	  uint32_t i2c_clk_source;
-	  i2c_clk_source = __HAL_RCC_GET_I2C1_SOURCE();
+	uint32_t i2c_clk_source;
+	i2c_clk_source = __HAL_RCC_GET_I2C1_SOURCE();
 
-	  if (i2c_clk_source == RCC_I2C1CLKSOURCE_PCLK1) {
-	      printf("I2C1 Clock Source: PCLK1\r\n");
-	  } else if (i2c_clk_source == RCC_I2C1CLKSOURCE_HSI) {
-	      printf("I2C1 Clock Source: HSI\r\n");
-	  } else {
-	      printf("I2C1 Clock Source: Unknown\r\n");
-	  }
+	if (i2c_clk_source == RCC_I2C1CLKSOURCE_PCLK1) {
+		printf("I2C1 Clock Source: PCLK1\r\n");
+	} else if (i2c_clk_source == RCC_I2C1CLKSOURCE_HSI) {
+		printf("I2C1 Clock Source: HSI\r\n");
+	} else {
+		printf("I2C1 Clock Source: Unknown\r\n");
+	}
 
-	  uint32_t pclk1_freq;
-	  pclk1_freq = HAL_RCC_GetPCLK1Freq();
-	  printf("PCLK1 Frequency: %lu Hz\r\n", pclk1_freq);
+	uint32_t pclk1_freq;
+	pclk1_freq = HAL_RCC_GetPCLK1Freq();
+	printf("PCLK1 Frequency: %lu Hz\r\n", pclk1_freq);
 	/* USER CODE END 2 */
 
 	/* Init code for STM32_WPAN */
 	MX_APPE_Init();
-
-	if (HAL_I2C_Slave_Transmit_IT(&hi2c1, i2c_tx_buffer, I2C_BUFFER_SIZE) != HAL_OK)
-	{
-	    // エラー処理
-	    printf("Error initiating slave transmit interrupt!\r\n");
-	}
-	else
-	{
-	    printf("Slave ready for interrupt-based transmission.\r\n");
-	}
 	/* Infinite loop */
 	/* USER CODE BEGIN WHILE */
 	while (1) {
 		/* USER CODE END WHILE */
-//		MX_APPE_Process();
-
+		MX_APPE_Process();
 		/* USER CODE BEGIN 3 */
-//		if (tim2_flag) {
-//			if (tim2_flag_init == 1) {
-//				UTIL_SEQ_SetTask(1 << CFG_TASK_START_SCAN_ID, CFG_SCH_PRIO_0);
-//				UTIL_SEQ_SetTask(1 << CFG_TASK_Notify_Check_ID, CFG_SCH_PRIO_0);
-//			}
-//
-//			printf("tim2_flag true\r\n");
-//			Start_I2C_Slave_Transmit();
-//			tim2_flag = 0;
-//			tim2_flag_init = 1;
-//		}
+		if (tim2_flag) {
+			if (tim2_flag_init == 1) {
+				UTIL_SEQ_SetTask(1 << CFG_TASK_START_SCAN_ID, CFG_SCH_PRIO_0);
+				UTIL_SEQ_SetTask(1 << CFG_TASK_Notify_Check_ID, CFG_SCH_PRIO_0);
 
+//				uint8_t i2c_tx_buffer[6];
+//				printf("Send_Host start\r\n");
+//				BikeData bikeData = { 120, 250, 90 };  // サンプルデータ
+//				memcpy(i2c_tx_buffer, &bikeData, sizeof(BikeData));
+//				if (HAL_I2C_Master_Transmit_IT(&hi2c1, 0x30, i2c_tx_buffer, 6)
+//						!= HAL_OK) {
+//					// エラー処理
+//					printf("Error initiating slave transmit interrupt!\r\n");
+//				} else {
+//					printf("Slave ready for interrupt-based transmission.\r\n");
+//				}
+			}
 
-
-		HAL_Delay(1000);
+			printf("tim2_flag true\r\n");
+			tim2_flag = 0;
+			tim2_flag_init = 1;
+		}
 	}
 	/* USER CODE END 3 */
 }
 
-void HAL_I2C_SlaveTxCpltCallback(I2C_HandleTypeDef *hi2c)
-{
-    if (hi2c->Instance == I2C1)
-    {
-        printf("Slave transmit complete.\r\n");
+uint8_t i2c_tx_buffersa[6];
 
-        // 必要に応じて、再度送信処理を開始する
-        HAL_I2C_Slave_Transmit_IT(&hi2c1, i2c_tx_buffer, I2C_BUFFER_SIZE);
-    }
+void HAL_I2C_MasterTxCpltCallback(I2C_HandleTypeDef *hi2c) {
+	if (hi2c->Instance == I2C1) {
+		printf("Slave transmit complete.\r\n");
+
+//		if (HAL_I2C_Master_Receive_IT(&hi2c1, 0x30, i2c_tx_buffersa, 6) != HAL_OK) {
+//			printf("HAL_I2C_Master_Receive_IT failed\r\n");
+//		} else {
+//			printf("HAL_I2C_Master_Receive_IT success\r\n");
+//		}
+	}
 }
 
-void HAL_I2C_ErrorCallback(I2C_HandleTypeDef *hi2c)
-{
-    if (hi2c->Instance == I2C1)
-    {
-        printf("I2C Error occurred in slave mode!\r\n");
-    }
+void HAL_I2C_MasterRxCpltCallback(I2C_HandleTypeDef *hi2c) {
+	if (hi2c->Instance == I2C1) {
+		printf("Received \r\n");
+	}
+}
+
+void HAL_I2C_ErrorCallback(I2C_HandleTypeDef *hi2c) {
+	if (hi2c->Instance == I2C1) {
+		printf("I2C Error occurred in slave mode!\r\n");
+	}
 }
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
@@ -463,8 +460,8 @@ static void MX_I2C1_Init(void) {
 
 	/* USER CODE END I2C1_Init 1 */
 	hi2c1.Instance = I2C1;
-	hi2c1.Init.Timing = 0x00B07CB4;  // 32MHzクロックで100kHzのI2C
-	hi2c1.Init.OwnAddress1 = SLAVE_ADDRESS;
+	hi2c1.Init.Timing = 0x0040040C;  // 32MHzクロックで100kHzのI2C
+	hi2c1.Init.OwnAddress1 = 0;
 	hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
 	hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
 	hi2c1.Init.OwnAddress2 = 0;

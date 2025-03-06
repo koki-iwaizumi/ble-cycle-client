@@ -5,6 +5,7 @@
 #include "p2p_client_app.h"
 #include "stm32_seq.h"
 #include "app_ble.h"
+#include <math.h>
 
 typedef enum {
 	P2P_START_TIMER_EVT, P2P_STOP_TIMER_EVT, P2P_NOTIFICATION_INFO_RECEIVED_EVT,
@@ -56,6 +57,13 @@ static uint8_t prevZeroCrankRevCount = 0;
 static P2P_ClientContext_t aP2PClientContext[BLE_CFG_CLT_MAX_NBR_CB];
 
 static SVCCTL_EvtAckStatus_t Event_Handler(void *Event);
+
+#define I2C_BUFFER_SIZE 6   // バッファサイズ
+
+uint8_t i2c_rx_buffer[I2C_BUFFER_SIZE];
+uint8_t i2c_tx_buffer[I2C_BUFFER_SIZE];
+
+BikeData bikeData = {0, 0, 0};
 
 extern SensorDevice_t speedSensor;
 extern SensorDevice_t powerMeterSensor;
@@ -308,6 +316,8 @@ static SVCCTL_EvtAckStatus_t Event_Handler(void *Event) {
 						if (speed_kmh > 999.0) speed_kmh = 0.0;
 						APP_DBG_MSG("Speed: %.2f km/h", speed_kmh)
 						;
+						bikeData.speed = roundToUint16(speed_kmh);
+						sendHost();
 //						APP_DBG_MSG("Speed: %.2f km/h, wheelRevolution=%u, prevWheelRevolutions=%u, wheelRevDiff=%u, wheelEventTime=%u, prevWheelEventTime=%u, timeDiff=%u, prevZeroWheelRevCount=%d\n",
 //								speed_kmh ,wheelRevolutions, prevWheelRevolutions, wheelRevDiff, wheelEventTime, prevWheelEventTime, timeDiff, prevZeroWheelRevCount);
 					}
@@ -358,6 +368,9 @@ static SVCCTL_EvtAckStatus_t Event_Handler(void *Event) {
 				if (cadence >= 0) {
 					APP_DBG_MSG("Power: %d W, Cadence: %d rpm\n", power, cadence)
 					;
+					bikeData.power = power;
+					bikeData.cadence = cadence;
+					sendHost();
 				}
 
 //				APP_DBG_MSG("Power: %d W, Cadence: %d rpm, crank: %d, prevCrank: %d, cDiff: %d, time: %d, prevTime: %d, tDiff: %d, seconds: %.4f s\n",
@@ -472,6 +485,25 @@ static SVCCTL_EvtAckStatus_t Event_Handler(void *Event) {
 
 uint8_t P2P_Client_APP_Get_State(void) {
 	return aP2PClientContext[0].state;
+}
+
+
+void sendHost(void) {
+	memcpy(i2c_tx_buffer, &bikeData, sizeof(BikeData));
+
+	if (HAL_I2C_Master_Transmit(&hi2c1, 0x30, i2c_tx_buffer, I2C_BUFFER_SIZE, HAL_MAX_DELAY) != HAL_OK)
+	{
+	    // エラー処理
+	    printf("sendHost failed!\r\n");
+	}
+	else
+	{
+	    printf("sendHost success\r\n");
+	}
+}
+
+uint16_t roundToUint16(float value) {
+    return (uint16_t)roundf(value);
 }
 
 //void HAL_I2C_SlaveTxCpltCallback(I2C_HandleTypeDef *hi2c) {

@@ -49,7 +49,11 @@ extern "C" {
 
 /* Exported macro ------------------------------------------------------------*/
 /* USER CODE BEGIN EM */
-
+typedef struct {
+	uint16_t speed;
+	uint16_t power;
+	uint16_t cadence;
+} BikeData;
 /* USER CODE END EM */
 
 /* Exported functions prototypes ---------------------------------------------*/

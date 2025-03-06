@@ -48,6 +48,11 @@ SensorDevice_t powerMeterSensor = { .addr_type = 1, .bd_addr = { 0xF4, 0x27,
 
 #define APPBLE_GAP_DEVICE_NAME_LENGTH 7
 #define BD_ADDR_SIZE_LOCAL    6
+#define SLAVE_ADDRESS 0x30  // スレーブアドレス (7-bit)
+
+uint8_t i2c_tx_buffers[6];
+
+extern I2C_HandleTypeDef hi2c1;
 
 PLACE_IN_SECTION("MB_MEM1") ALIGN(4) static TL_CmdPacket_t BleCmdBuffer;
 
@@ -69,6 +74,7 @@ static void Scan_Request(void);
 static void Connect_Request(void);
 static void Reconnect_Request(void);
 static void Notify_Check(void);
+static void Send_Host(void);
 
 extern TIM_HandleTypeDef htim2; // 使用するタイマー
 
@@ -123,6 +129,7 @@ void APP_BLE_Init(void) {
 
 	UTIL_SEQ_RegTask(1 << CFG_TASK_START_SCAN_ID, UTIL_SEQ_RFU, Scan_Request);
 	UTIL_SEQ_RegTask(1 << CFG_TASK_Notify_Check_ID, UTIL_SEQ_RFU, Notify_Check);
+	UTIL_SEQ_RegTask(1 << CFG_TASK_SEND_HOST_ID, UTIL_SEQ_RFU, Send_Host);
 
 	BleApplicationContext.Device_Connection_Status = APP_BLE_IDLE;
 
@@ -632,6 +639,19 @@ static void Notify_Check(void) {
 
 	speedSensor.notify_count = 0;
 	powerMeterSensor.notify_count = 0;
+}
+
+static void Send_Host(void) {
+	printf("Send_Host start\r\n");
+	BikeData bikeData = { 120, 250, 90 };  // サンプルデータ
+	memcpy(i2c_tx_buffers, &bikeData, sizeof(BikeData));
+	if (HAL_I2C_Master_Transmit(&hi2c1, SLAVE_ADDRESS, i2c_tx_buffers, 6,
+			HAL_MAX_DELAY) != HAL_OK) {
+		// エラー処理
+		printf("Error initiating slave transmit interrupt!\r\n");
+	} else {
+		printf("Slave ready for interrupt-based transmission.\r\n");
+	}
 }
 
 void hci_notify_asynch_evt(void *pdata) {
